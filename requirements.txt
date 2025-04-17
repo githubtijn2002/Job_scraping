@@ -1,0 +1,7 @@
+ipython
+pandas
+bs4
+'torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124'
+transformers
+datasets
+tokenizers
