@@ -2,3 +2,4 @@ ipython
 pandas
 beautifulsoup4
 nltk
+scikit-learn
