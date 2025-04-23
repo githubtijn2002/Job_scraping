@@ -47,11 +47,11 @@ job_ids = get_job_ids(trigger_words, keyword, geoid=102890719, search_count=350)
 # Fetch detailed job information
 data = fetch_job_details(job_ids)
 
-# Save the data to CSV
-save_jobs(data, keyword, date=True)
-
 # Extract job requirements and skills
 df = job_info_extractor(data, skills=skills)
+
+# Save the data to CSV
+save_jobs(data, keyword, date=True)
 ```
 
 ### Geographic Location
