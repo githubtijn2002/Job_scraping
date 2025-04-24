@@ -1,5 +1,5 @@
 # FUNCTION FOR FETCHING JOB IDs FROM LINKEDIN
-def get_job_ids(trigger_words, keyword, geoid=102890719, search_count=250, headers=None, internship=False):
+def get_job_ids(trigger_words, keyword, geoid=102890719, search_count=250, headers=None, internship=False, blacklist=False):
     """
     Get job IDs from LinkedIn based on trigger words and keyword.
     # explain the inputs and outputs
@@ -69,6 +69,16 @@ def get_job_ids(trigger_words, keyword, geoid=102890719, search_count=250, heade
         sleep(random.randint(0, 2))
 
     print(f"Total job IDs found: {len(job_ids)}")
+    print("--------------------------------------")
+    if blacklist == True:
+        try:
+            with open('blacklist_ids.txt', 'r') as f:
+                blacklist = set(f.read().splitlines())
+        except FileNotFoundError:
+            print("Blacklist was enabled, but no blacklist file was found.")
+            return job_ids
+        # remove the blacklist_ids from the job_ids list
+        job_ids = set(job_ids) - blacklist
     return job_ids
 
 
@@ -179,12 +189,12 @@ def fetch_job_details(job_ids, headers=None):
     df = pd.DataFrame(data)
     print(f'Entries before dropping duplicates: {len(df)}')
     print("--------------------------------------")
-    df = df.drop_duplicates(subset=['job_title', 'job_company', 'job_location', 'job_description'], keep='first')
+    df = df.drop_duplicates(subset=['job_title', 'job_company', 'job_description'], keep='first')
     print(f'Entries after dropping duplicates: {len(df)}')
     df.reset_index(drop=True, inplace=True)
     df['job_link'] = job_links
     print("DataFrame created successfully!")
-    return pd.DataFrame(data)
+    return df
 
 
 
@@ -248,6 +258,40 @@ def load_jobs(job_title, date = False):
         return None
     
 
+# FUNCTION FOR BLACKLISTING JOB IDs
+def blacklist_job_ids(csv_file, rows=None, cleanup=True):
+    """
+    This function takes a CSV file and a number of rows as input and checks if the job ids in the CSV file are in the blacklist.
+    If the job id is not in the blacklist, it will be added to the blacklist.
+    """
+    import pandas as pd
+    # try to read in the blacklist as a list
+    try:
+        with open('blacklist_ids.txt', 'r') as f:
+            blacklist = set(f.read().splitlines())
+    except FileNotFoundError:
+        blacklist = set()
+    df = pd.read_csv(csv_file)
+    # 
+    ids = df['job_link'].apply(lambda x: x.split('=')[1]).tolist()
+    if rows:
+        ids = ids[:rows]
+    set_ids = set(ids)
+    # find the ids in blacklist that are not in the set_ids
+    blacklist_ids = set_ids.intersection(blacklist)
+    if cleanup == True:
+        blacklist_ids = blacklist_ids - (blacklist - set_ids)
+        print(f'Found {len(blacklist - set_ids)} outdated job ids in the blacklist.')
+        if len(blacklist - set_ids) > 0:
+            print(f'Cleaning up the blacklist...')
+        else:
+            print(f'No outdated job ids in the blacklist.')
+    # write blacklist_ids to a file
+    with open('blacklist_ids.txt', 'w') as f:
+        for id in blacklist_ids:
+            f.write(id + '\n')
+
+
 
 # FUNCTIONS FOR EXTRACTING RELEVANT SECTIONS FROM JOB POSTINGS
 def create_patterns():
@@ -287,19 +331,19 @@ def extract_relevant_sections(job_posting_text, context_window):
     sentences = sent_tokenize(job_posting_text)
     patterns = create_patterns()
 
-    matches = []
+    matches = set()  # Use a set to avoid duplicate sentences
     for i, sentence in enumerate(sentences):
         if any(p.search(sentence) for p in patterns):
             # Optionally, capture surrounding sentences for context
             start = max(0, i - context_window)
             end = min(len(sentences), i + context_window + 1)
-            block = " ".join(sentences[start:end])
-            matches.append(block)
-    relevant_text = (' ').join(matches)
+            for j in range(start, end):
+                matches.add(sentences[j])  # Add each sentence to the set
+    relevant_text = ' '.join(sorted(matches, key=sentences.index))  # Preserve original order
 
     return relevant_text
 
-def job_info_extractor(df, skills = 'extract'):
+def job_info_extractor(df, skills = 'extract', drop_original_text = True):
     """
     Extract relevant sections from job postings based on keywords.
     :param df: DataFrame containing job postings.
@@ -310,7 +354,6 @@ def job_info_extractor(df, skills = 'extract'):
     import nltk
     nltk.download('punkt_tab')
 
-    patterns = create_patterns()
     jobs_relevant_info = [extract_relevant_sections(job, context_window=2) for job in df['job_description']]
     df['relevant_text'] = jobs_relevant_info
     print("Relevant sections extracted successfully!")
@@ -334,6 +377,8 @@ def job_info_extractor(df, skills = 'extract'):
         skills_found.append(found_skills)
     df['skills'] = skills_found
     print(f"Skills extracted successfully for {len(skills_found)} job postings!")
+    if drop_original_text == True:
+        df.drop(columns=['job_description'], inplace=True)
     return df
 
 
@@ -421,7 +466,7 @@ def extract_common_skills(job_postings, min_doc_freq=None, ngram_range=(1,2), *a
     from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
     nltk.download('stopwords')
     from nltk.corpus import stopwords
-    min_doc_freq = len(job_postings) // 10 if min_doc_freq is None else min_doc_freq
+    min_doc_freq = max(3, len(job_postings) // 10 if min_doc_freq is None else min_doc_freq)
     dutch_stopwords = set(stopwords.words('dutch'))
     # also dutch stop words
     stopwords = set(ENGLISH_STOP_WORDS).union(dutch_stopwords)
