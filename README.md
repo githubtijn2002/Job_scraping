@@ -1,3 +1,5 @@
+# LinkedIn Job Scraper & Analyzer
+
 A comprehensive Python toolkit for scraping, analyzing, and extracting insights from job postings on LinkedIn.
 
 ## Features
@@ -8,6 +10,7 @@ A comprehensive Python toolkit for scraping, analyzing, and extracting insights 
 - **Experience Requirements**: Extract years of experience requirements
 - **Relevant Section Extraction**: Focus on the most important parts of job descriptions
 - **Text Processing**: NLP-based analysis of job postings
+- **Blacklisting**: Prevent duplicate job postings across multiple searches
 
 ## Installation
 
@@ -17,16 +20,17 @@ A comprehensive Python toolkit for scraping, analyzing, and extracting insights 
    cd linkedin-job-scraper
    ```
 
-2. Install the required dependencies:
+2. Create a virtual environment and install the required dependencies:
    ```
+   python -m venv .env
+   
+   # On Windows
+   .env\Scripts\activate
+   
+   # On Linux/Mac
+   source .env/bin/activate
+   
    pip install -r requirements.txt
-   ```
-
-3. Make sure you have NLTK data downloaded:
-   ```python
-   import nltk
-   nltk.download('punkt')
-   nltk.download('stopwords')
    ```
 
 ## Usage
@@ -36,27 +40,31 @@ A comprehensive Python toolkit for scraping, analyzing, and extracting insights 
 ```python
 from functions import *
 
-# Define your search parameters
-trigger_words = ['data', 'machine learning', 'ai', 'ml', 'statist', 'artificial intelligence', 'python']
-keyword = 'data scientist'
+# 1. Define your search parameters
+trigger_words = ['data', 'machine learning', 'ai', 'ml ', 'statist', 'artificial intelligence', 'python']
+keyword = 'Data science'
 skills = ['python', 'sql', 'machine learning', 'pandas', 'numpy', 'tensorflow', 'pytorch']
 
-# Get job IDs matching your criteria
-job_ids = get_job_ids(trigger_words, keyword, geoid=102890719, search_count=350)
+# 2. Get job IDs matching your criteria
+job_ids = get_job_ids(trigger_words, keyword, search_count=350, headers=None, 
+                      internship=False, blacklist=True)
 
-# Fetch detailed job information
-data = fetch_job_details(job_ids)
+# 3. Fetch detailed job information
+data = fetch_job_details(job_ids, headers=None)
 
-# Extract job requirements and skills
-df = job_info_extractor(data, skills=skills)
+# 4. Extract relevant information from job descriptions
+data_info = job_info_extractor(data, skills=skills)
 
-# Save the data to CSV
-save_jobs(data, keyword, date=True)
+# 5. Save the results to CSV with today's date in the filename
+save_jobs(data_info, keyword, date=True)
+
+# 6. Add the current job IDs to blacklist for future searches
+blacklist_job_ids(keyword, rows=None, cleanup=True, date=True)
 ```
 
 ### Geographic Location
 
-The default location is set to the Netherlands (`geoid=102890719`). To change the location, update the `geoid` parameter.
+The default location is set to the Netherlands (geoid=102890719). To change the location, update the geoid parameter.
 
 ### Custom Headers
 
@@ -72,24 +80,35 @@ headers = {
 job_ids = get_job_ids(trigger_words, keyword, headers=headers)
 ```
 
+### Automatic Skill Extraction
+
+Instead of providing a predefined list of skills, you can automatically extract common skills from job descriptions:
+
+```python
+data_info = job_info_extractor(data, skills='extract')
+```
+
 ## Function Reference
 
-### `get_job_ids(trigger_words, keyword, geoid, search_count, headers, internship)`
+### get_job_ids(trigger_words, keyword, geoid, search_count, headers, internship, blacklist)
 Scrapes LinkedIn jobs search results to find job IDs matching your criteria.
 
-### `fetch_job_details(job_ids, headers)`
+### fetch_job_details(job_ids, headers)
 Fetches detailed information for each job ID, including job title, company name, location, and full description.
 
-### `save_jobs(dataframe, job_title, date)`
-Saves the job data to a CSV file with optional date in the filename.
-
-### `load_jobs(job_title, date)`
-Loads previously saved job data from a CSV file.
-
-### `job_info_extractor(df, skills)`
+### job_info_extractor(df, skills, drop_original_text)
 Extracts relevant information from job descriptions, including skills and years of experience.
 
-### `extract_common_skills(job_postings, min_doc_freq, ngram_range)`
+### save_jobs(dataframe, job_title, date)
+Saves the job data to a CSV file with optional date in the filename.
+
+### load_jobs(job_title, date)
+Loads previously saved job data from a CSV file.
+
+### blacklist_job_ids(job_title, rows, cleanup, date)
+Manages a blacklist of job IDs to avoid duplicates in future searches.
+
+### extract_common_skills(job_postings, min_doc_freq, ngram_range)
 Uses NLP techniques to automatically identify common skills mentioned in job postings.
 
 ## Limitations
