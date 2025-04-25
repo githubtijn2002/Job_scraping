@@ -8,6 +8,8 @@ def get_job_ids(trigger_words, keyword, geoid=102890719, search_count=250, heade
     :param geoid: Geographical ID for the job search location. Default is 102890719 (Netherlands).
     :param search_count: Number of job postings to fetch. Default is 250.
     :param headers: Optional headers for the request. If None, default headers will be used. If False, no headers will be used.
+    :param internship: Boolean indicating whether to include internship positions. Default is False.
+    :param blacklist: Boolean indicating whether to use a blacklist of job IDs. Default is False.
     :return: List of job IDs that match the trigger words and keyword.
     """
     import requests
@@ -78,7 +80,9 @@ def get_job_ids(trigger_words, keyword, geoid=102890719, search_count=250, heade
             print("Blacklist was enabled, but no blacklist file was found.")
             return job_ids
         # remove the blacklist_ids from the job_ids list
-        job_ids = set(job_ids) - blacklist
+        job_ids = list(set(job_ids) - blacklist)
+        print(f"Total job IDs after removing blacklist: {len(job_ids)}")
+        print("--------------------------------------")
     return job_ids
 
 
@@ -187,12 +191,17 @@ def fetch_job_details(job_ids, headers=None):
     job_links = [f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}" for job_id in job_ids]
     print("Creating DataFrame...")
     df = pd.DataFrame(data)
+    df['job_link'] = job_links
     print(f'Entries before dropping duplicates: {len(df)}')
     print("--------------------------------------")
     df = df.drop_duplicates(subset=['job_title', 'job_company', 'job_description'], keep='first')
     print(f'Entries after dropping duplicates: {len(df)}')
     df.reset_index(drop=True, inplace=True)
-    df['job_link'] = job_links
+
+    hyperlink = []
+    for i in range(len(df)):
+        hyperlink.append(f'=HYPERLINK("{df["job_link"][i]}")')
+    df['job_link'] = hyperlink
     print("DataFrame created successfully!")
     return df
 
@@ -232,7 +241,6 @@ def load_jobs(job_title, date = False):
     :param job_title: Job title used for naming the CSV file.
     :param date: Date string in 'dd-mm-yyyy' format. If True, uses today's date. If False, uses no date.
     :return: DataFrame containing job postings.
-
     """
     import time
     import pandas as pd
@@ -251,6 +259,7 @@ def load_jobs(job_title, date = False):
             return None
     try:
         dataframe = pd.read_csv(filename)
+        dataframe['job_link'] = dataframe['job_link'].apply(lambda x: x.split(',')[0])
         print(f"Job postings loaded from {filename}")
         return dataframe
     except FileNotFoundError:
@@ -259,10 +268,15 @@ def load_jobs(job_title, date = False):
     
 
 # FUNCTION FOR BLACKLISTING JOB IDs
-def blacklist_job_ids(csv_file, rows=None, cleanup=True):
+def blacklist_job_ids(job_title, rows=None, cleanup=True, date=True):
     """
     This function takes a CSV file and a number of rows as input and checks if the job ids in the CSV file are in the blacklist.
     If the job id is not in the blacklist, it will be added to the blacklist.
+    :param job_title: The job title to search for in the CSV file.
+    :param rows: The number of rows to check in the CSV file. If None, all rows will be checked.
+    :param cleanup: If True, the function will remove the outdated job ids from the blacklist.
+    :param date: If True, the function will use the current date to load the CSV file. If False, it will use the date in the filename.
+    :return: None
     """
     import pandas as pd
     # try to read in the blacklist as a list
@@ -271,14 +285,14 @@ def blacklist_job_ids(csv_file, rows=None, cleanup=True):
             blacklist = set(f.read().splitlines())
     except FileNotFoundError:
         blacklist = set()
-    df = pd.read_csv(csv_file)
+    df = load_jobs(job_title, date=date)
     # 
-    ids = df['job_link'].apply(lambda x: x.split('=')[1]).tolist()
+    ids = df['job_link'].apply(lambda x: x.split('"')[1].split('=')[1]).tolist()
     if rows:
         ids = ids[:rows]
     set_ids = set(ids)
     # find the ids in blacklist that are not in the set_ids
-    blacklist_ids = set_ids.intersection(blacklist)
+    blacklist_ids = set_ids.union(blacklist)
     if cleanup == True:
         blacklist_ids = blacklist_ids - (blacklist - set_ids)
         print(f'Found {len(blacklist - set_ids)} outdated job ids in the blacklist.')
@@ -293,11 +307,11 @@ def blacklist_job_ids(csv_file, rows=None, cleanup=True):
 
 
 
+
 # FUNCTIONS FOR EXTRACTING RELEVANT SECTIONS FROM JOB POSTINGS
 def create_patterns():
     """
     Create regex patterns from keywords for efficient matching.
-    :param keywords: List of keywords to create patterns from.
     :return: List of compiled regex patterns.
     """
     import re
@@ -347,7 +361,8 @@ def job_info_extractor(df, skills = 'extract', drop_original_text = True):
     """
     Extract relevant sections from job postings based on keywords.
     :param df: DataFrame containing job postings.
-    :param patterns: List of regex patterns for matching keywords.
+    :param skills: List of skills to extract. If 'extract', common skills will be extracted.
+    :param drop_original_text: Boolean indicating whether to drop the original job description column.
     :return: DataFrame with relevant sections extracted.
     """
     import re
@@ -436,9 +451,22 @@ def create_blacklist(*args):
 
 # ---------- Text Processing and N-gram Extraction ----------
 def generate_ngrams(tokens, n):
+    """
+    Generate n-grams from a list of tokens.
+    :param tokens: List of tokens (words).
+    :param n: The size of the n-grams to generate.
+    :return: List of n-grams as strings.
+    """
     return [' '.join(tokens[i:i+n]) for i in range(len(tokens)-n+1)]
 
 def preprocess_and_extract_ngrams(text, stopwords, ngram_range):
+    """
+    Preprocess text and extract n-grams.
+    :param text: Input text (job posting).
+    :param stopwords: Set of stopwords to exclude.
+    :param ngram_range: Tuple specifying the range of n-grams to extract (min_n, max_n).
+    :return: Set of n-grams.
+    """
     import re
     text = text.lower()
     text = re.sub(r'[^a-z0-9\s]', '', text)  # Remove punctuation
